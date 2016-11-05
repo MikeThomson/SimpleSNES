@@ -6,6 +6,7 @@
 #define SNES_LATCH 2
 #define SNES_DATA 7
 #define SNES_CLOCK 3
+#define SNES_5V 16
 
 // SNES bitfield constants
 #define SNES_B 0
@@ -62,42 +63,72 @@ volatile int dataCount = 0;
 
 volatile int latched = 0;
 volatile int lastDataCount = 0;
-const long updateInterval = 16;
+const long updateInterval = 7;
 unsigned long previousMillis = 0; 
+unsigned long previousMillis2 = 0; 
 
-void activeSetup() {
-  // put your setup code here, to run once:
+const int STATE_ACTIVE = 0;
+const int STATE_PASSIVE = 1;
+int state = STATE_PASSIVE;
+
+void setupActive() {
   pinMode(SNES_LATCH, OUTPUT);
   pinMode(SNES_CLOCK, OUTPUT);
   pinMode(SNES_DATA, INPUT);
 
-  initJoy();
-  Joystick.begin(false);
+  detachInterrupt(digitalPinToInterrupt(SNES_LATCH));
+  detachInterrupt(digitalPinToInterrupt(SNES_CLOCK));
 }
 
 void activeLoop() {
   updateButtonStates();
   sendButtons();
 
-  delay(7); // poll at ~120hz for now
+  // @TODO block no more
+  delay(updateInterval); // poll at ~120hz for now
 }
 
 void setup() {
-  pinMode(SNES_LATCH, INPUT);
-  pinMode(SNES_CLOCK, INPUT);
-  pinMode(SNES_DATA, INPUT);
-  
-  // set up the latch interrupt
-  attachInterrupt(digitalPinToInterrupt(SNES_LATCH), latchInterrupt, FALLING);
-  
-  // set up the clock interrupt
-  attachInterrupt(digitalPinToInterrupt(SNES_CLOCK), clockInterrupt, RISING);
+  // initialize the snes 5v pin
+  pinMode(SNES_5V, INPUT);
 
+  // init the joystick
   initJoy();
   Joystick.begin(false);
 }
 
 void loop() {
+  // check if we should switch state
+  bool snes5v = digitalRead(SNES_5V);
+  if(snes5v == HIGH && state == STATE_ACTIVE) {
+    state = STATE_PASSIVE;
+    setupPassive();
+  } else if(snes5v == LOW && state == STATE_PASSIVE) {
+    state = STATE_ACTIVE;
+    setupActive();
+  } 
+
+  // run the appropriate loop
+  switch(state) {
+    case STATE_PASSIVE:
+      loopPassive();
+      break;
+    case STATE_ACTIVE:
+      activeLoop();
+      break;
+  }
+}
+
+void setupPassive() {
+  pinMode(SNES_LATCH, INPUT);
+  pinMode(SNES_CLOCK, INPUT);
+  pinMode(SNES_DATA, INPUT);
+  
+  attachInterrupt(digitalPinToInterrupt(SNES_LATCH), latchInterrupt, FALLING);
+  attachInterrupt(digitalPinToInterrupt(SNES_CLOCK), clockInterrupt, RISING);
+}
+
+void loopPassive() {
   // send a report every X ms
   // everything else is handled in interupts
 
@@ -124,9 +155,8 @@ void clockInterrupt() {
 
   // increase the bit position
   dataCount++;
-  if(dataCount == 16) { // this probably needs to change
+  if(dataCount == 16) { // this probably needs to change to support NES
     for(int i=0;i<16;i++) {
-      
       buttonStates[i] = tempButtonStates[i];
     }
   }
@@ -172,6 +202,8 @@ bool clockIn() {
 }
 
 void sendButtons() {
+  // PS3 constants are 1 indexed to match displayed HID button in windows, but the Joy library 
+  // is 0 indexed so we subtract 1
   Joystick.setButton(PS3_CROSS - 1, buttonStates[SNES_B]);
   Joystick.setButton(PS3_SQUARE - 1, buttonStates[SNES_Y]);
   Joystick.setButton(PS3_CIRCLE - 1, buttonStates[SNES_A]);

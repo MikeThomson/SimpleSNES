@@ -26,10 +26,9 @@ SimpleSNES depends on
 
 - Extremely simple hotplug support
 
+- Passthrough support
 
 ## TODO
-
-- Passthrough support
 
 - Code cleanup
 
@@ -39,4 +38,10 @@ SimpleSNES depends on
 
 - SuperScope support (unlikely, I don't have a super scope OR CRT to test with :( )
 
-- Confirm NES support
+- Confirm NES support (Almost certainly needs fixing)
+
+- better power layout
+
+## Known issues
+
+- SNES needs to be powered off when the device is plugged in to USB

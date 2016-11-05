@@ -3,9 +3,9 @@
 #include <Joystick.h>
 
 // Pin definitions
-#define SNES_LATCH 8
+#define SNES_LATCH 2
 #define SNES_DATA 7
-#define SNES_CLOCK 9
+#define SNES_CLOCK 3
 
 // SNES bitfield constants
 #define SNES_B 0
@@ -56,9 +56,16 @@ Joystick_ Joystick(
   
 );
 
-bool buttonStates[16];
+volatile bool buttonStates[16];
+volatile bool tempButtonStates[16];
+volatile int dataCount = 0;
 
-void setup() {
+volatile int latched = 0;
+volatile int lastDataCount = 0;
+const long updateInterval = 16;
+unsigned long previousMillis = 0; 
+
+void activeSetup() {
   // put your setup code here, to run once:
   pinMode(SNES_LATCH, OUTPUT);
   pinMode(SNES_CLOCK, OUTPUT);
@@ -68,11 +75,61 @@ void setup() {
   Joystick.begin(false);
 }
 
-void loop() {
+void activeLoop() {
   updateButtonStates();
   sendButtons();
 
   delay(7); // poll at ~120hz for now
+}
+
+void setup() {
+  pinMode(SNES_LATCH, INPUT);
+  pinMode(SNES_CLOCK, INPUT);
+  pinMode(SNES_DATA, INPUT);
+  
+  // set up the latch interrupt
+  attachInterrupt(digitalPinToInterrupt(SNES_LATCH), latchInterrupt, FALLING);
+  
+  // set up the clock interrupt
+  attachInterrupt(digitalPinToInterrupt(SNES_CLOCK), clockInterrupt, RISING);
+
+  initJoy();
+  Joystick.begin(false);
+}
+
+void loop() {
+  // send a report every X ms
+  // everything else is handled in interupts
+
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousMillis >= updateInterval) {
+    previousMillis = currentMillis;
+    sendButtons();
+  }
+
+}
+
+void latchInterrupt() {
+  // reset the data counter to 0
+  lastDataCount = dataCount;
+  tempButtonStates[0] = !digitalRead(SNES_DATA);
+  dataCount = 1;
+  latched++;
+}
+
+void clockInterrupt() {
+  // read the data pin
+  tempButtonStates[dataCount] = !digitalRead(SNES_DATA);
+
+  // increase the bit position
+  dataCount++;
+  if(dataCount == 16) { // this probably needs to change
+    for(int i=0;i<16;i++) {
+      
+      buttonStates[i] = tempButtonStates[i];
+    }
+  }
 }
 
 void updateButtonStates() {
